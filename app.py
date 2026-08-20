@@ -4,9 +4,13 @@
 import streamlit as st
 
 import config
+import importlib
 import job_search
 from analyzer import analyze_resume, generate_report, generate_report_stream, rank_jobs_by_match
 from resume_parser import parse_resume
+
+# 云端密钥/代码更新后，确保每次运行都重新读取最新配置（避免进程缓存旧值）
+importlib.reload(config)
 
 # ---------- 页面配置 ----------
 st.set_page_config(
