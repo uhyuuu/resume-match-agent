@@ -540,7 +540,7 @@ def render_jobs_section(jobs: list, used_query: str) -> None:
         st.markdown(
             f'<div class="section-head" style="margin-top:8px">'
             f'<span class="section-num">Top {len(top_jobs)}</span>'
-            f'<span class="section-title">最匹配岗位（按匹配度排序）· 实时在招（BOSS直聘等平台）</span></div>',
+            f'<span class="section-title">最匹配岗位（按匹配度排序）· 实时在招（智联招聘为主）</span></div>',
             unsafe_allow_html=True,
         )
         for idx, job in enumerate(top_jobs, start=1):
@@ -569,6 +569,9 @@ def render_job_card(rank: int, job: dict) -> None:
     platform = job.get("platform") or ""
     if platform and platform != "Google Jobs":
         meta_parts.append(platform)
+    date = (job.get("date") or "").strip()
+    if date:
+        meta_parts.append(date[:10])
     meta_html = ""
     for i, part in enumerate(meta_parts):
         if i:
@@ -661,6 +664,16 @@ with st.sidebar:
                     _src = "环境变量"
             st.write(f"{_k}: {'✅ 已设置(' + _src + ')' if _v else '❌ 未设置'}")
         st.write("---")
+        st.write("智联在招抓取诊断(上次搜索):")
+        try:
+            import job_search as _js
+            _dbg = _js._zhaopin_debug
+            st.write(f"百度找到详情页: {_dbg.get('baidu_found', 0)}")
+            st.write(f"成功打开并解析: {_dbg.get('fetched', 0)}")
+            st.write(f"通过核验的在招岗位: {_dbg.get('parsed', 0)}")
+            st.write(f"被WAF拦截: {_dbg.get('blocked', 0)} | 抓取异常: {_dbg.get('fetch_error', 0)}")
+        except Exception as _e:
+            st.write("读取失败:", repr(_e))
         try:
             config.refresh()
             st.write("config 重新读取后：")
