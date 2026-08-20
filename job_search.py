@@ -296,7 +296,7 @@ def _split_title_and_company(raw_title: str) -> tuple[str, str]:
         return "", ""
 
     # 去掉末尾的招聘平台/招聘后缀
-    cleaned = re.sub(r"[-_｜|·\s]*(BOSS\s*直聘|Boss\s*直聘|boss\s*直聘|招聘)$", "", raw_title)
+    cleaned = re.sub(r"[-_｜|·\s]*(BOSS\s*直聘|Boss\s*直聘|boss\s*直聘|智联招聘|智联|招聘)$", "", raw_title)
 
     # 用正则统一拆分：所有可能的分隔符都识别（包括无空格情况）
     parts = [p.strip() for p in re.split(
@@ -551,8 +551,9 @@ def search_jobs_live(query: str, city: str = "") -> list:
 # 思路：百度(SerpAPI)找到智联详情页 → 逐个打开解析 → 只保留"状态=招聘中 且 最近发布"的岗位。
 
 ZHAOPIN_MAX_AGE_DAYS = 180          # 发布超过该天数视为可能已下架
+ZHAOPIN_FETCH_TIMEOUT = 15        # 智联详情页抓取超时（秒），避免慢请求拖累整体
 FALLBACK_MAX_AGE_DAYS = 30          # BOSS 缓存兜底：仅保留最近 30 天被搜索到的页面
-ZHAOPIN_BAIDU_PAGES = 2             # 百度搜索翻页数（每页约 10 条）
+ZHAOPIN_BAIDU_PAGES = 1             # 百度搜索翻页数（1 页约 10 条，够用且更快）
 _ZHAOPIN_DETAIL_RE = re.compile(r"https?://jobs\.zhaopin\.com/[A-Za-z0-9_\-]+\.htm", re.I)
 
 # 每次搜索的诊断计数（用于排查云端是否被智联 WAF 拦截）
@@ -595,7 +596,7 @@ def _fetch_zhaopin_state(url: str) -> dict | None:
     """
     try:
         req = urllib.request.Request(url, headers=_ZHAOPIN_FETCH_HEADERS)
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=ZHAOPIN_FETCH_TIMEOUT) as resp:
             body = resp.read().decode("utf-8", "ignore")
     except Exception:
         _zhaopin_debug["fetch_error"] += 1
@@ -729,7 +730,7 @@ def search_jobs_zhaopin(query: str) -> list:
         return []
 
     jobs: list[dict] = []
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         states = list(pool.map(_fetch_zhaopin_state, urls))
     for url, state in zip(urls, states):
         if not state:
@@ -745,44 +746,81 @@ def search_jobs_zhaopin(query: str) -> list:
     return jobs
 
 
-def search_jobs_with_fallback(analysis: dict, target_role: str, target_city: str) -> tuple[list, str]:
-    """实时在招搜索：智联详情页(已核验在招) → Google Jobs → BOSS 缓存兜底。
+def search_jobs_baidu_organic(query: str) -> list:
+    """百度索引兜底：把百度收录的智联/BOSS 岗位页直接转成卡片（不打开详情页）。
 
-    返回 (岗位列表, 实际使用的搜索词)。
+    速度比逐个核验快得多；百度对国内招聘站收录比 Google 新鲜，
+    但结果仍是"收录快照"，可能已停止招聘，调用方需标注来源。
+    """
+    if not (query or "").strip():
+        return []
+    jobs: list[dict] = []
+    seen: set[str] = set()
+    for site in ("site:jobs.zhaopin.com", "site:www.zhipin.com"):
+        try:
+            items = _fetch_baidu_results(f"{site} {query}", page=0)
+        except RuntimeError:
+            items = []
+        for item in items:
+            link = (item.get("link") or "").strip().split("?")[0]
+            title = (item.get("title") or "").strip()
+            snippet = (item.get("snippet") or "").strip()
+            if not link or not title or link in seen:
+                continue
+            seen.add(link)
+            job_title, company = _split_title_and_company(title)
+            job_title = re.sub(r"(招聘信息|招聘)$", "", job_title).strip() or job_title
+            company = re.sub(r"(招聘)$", "", company).strip() or company
+            if _is_seo_page(title) or _is_closed_job(f"{title} {snippet}", job_title):
+                continue
+            jobs.append({
+                "title": job_title,
+                "company": company or "未知",
+                "location": _extract_location(snippet, title),
+                "salary": _extract_salary(snippet),
+                "link": link,
+                "snippet": snippet[:220],
+                "description": snippet,
+                "date": "",
+                "platform": "BOSS直聘(收录)" if "zhipin" in link else "智联招聘(收录)",
+            })
+    return _dedupe_jobs(jobs)
+
+
+def search_jobs_with_fallback(analysis: dict, target_role: str, target_city: str) -> tuple[list, str]:
+    """实时在招搜索：智联详情页(已核验在招) → Google Jobs → 百度收录兜底。
+
+    关键策略：只要智联核验到 ≥1 条在招，就不再掺入可能已关闭的缓存页，
+    宁可数量少也要保证"全部在招"。返回 (岗位列表, 实际使用的搜索词)。
     """
     base_query = analysis.get("search_query") or _build_query(target_role, target_city)
     if target_city.strip() and target_city.strip() not in base_query:
         base_query = f"{base_query} {target_city.strip()}".strip()
 
-    jobs: list[dict] = []
-
-    # 1) 智联招聘：百度找到详情页 → 逐个打开解析并核验"近期在招"
+    # 1) 智联招聘：百度找到详情页 → 并发打开解析并核验"近期在招"
     try:
-        jobs += search_jobs_zhaopin(base_query)
+        zhaopin_jobs = search_jobs_zhaopin(base_query)
     except Exception:
-        pass
+        zhaopin_jobs = []
+    jobs: list[dict] = list(zhaopin_jobs)
 
-    # 2) Google Jobs 实时在招（已修复：不再传不支持的 gl=cn 参数）
-    try:
-        jobs += search_jobs_live(base_query, target_city)
-    except Exception:
-        pass
+    # 2) 智联够数就跳过 Google（慢且对中国大陆岗位覆盖差）
+    if len(zhaopin_jobs) < 5:
+        try:
+            jobs += search_jobs_live(base_query, target_city)
+        except Exception:
+            pass
 
     jobs = _dedupe_jobs(jobs)
     verified_count = sum(1 for j in jobs if not j.get("_fallback"))
 
-    # 3) 核验结果太少时，才退回搜索引擎收录的 BOSS 页面（标注"缓存"，可能已停止）
-    if verified_count < 5:
+    # 3) 一条核验结果都没有时，才用百度收录快照兜底（标注来源，可能已停止）
+    if verified_count == 0:
         try:
-            fallback = search_jobs(base_query)
+            fallback = search_jobs_baidu_organic(base_query)
         except Exception:
             fallback = []
         for job in fallback:
-            # 只保留最近 30 天内被搜索到过的页面，进一步减少已停止招聘
-            days = _parse_recency_days(job.get("date") or "")
-            if days is not None and days > FALLBACK_MAX_AGE_DAYS:
-                continue
-            job["platform"] = "BOSS直聘(缓存)"
             job["_fallback"] = True
         jobs = _dedupe_jobs(jobs + fallback)
 

@@ -681,6 +681,31 @@ with st.sidebar:
             st.write(f"被WAF拦截: {_dbg.get('blocked', 0)} | 抓取异常: {_dbg.get('fetch_error', 0)}")
         except Exception as _e:
             st.write("读取失败:", repr(_e))
+        st.write("---")
+        if st.button("一键诊断智联接口（云端直测）"):
+            import urllib.request as _ur
+            _test_url = "https://jobs.zhaopin.com/CC120019970J40159326703.htm"
+            try:
+                _req = _ur.Request(_test_url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+                    "Referer": "https://sou.zhaopin.com/",
+                    "Accept-Language": "zh-CN,zh;q=0.9",
+                })
+                with _ur.urlopen(_req, timeout=20) as _resp:
+                    _body = _resp.read().decode("utf-8", "ignore")
+                _has_state = "__INITIAL_STATE__" in _body
+                _blocked = "Security Verification" in _body[:800]
+                st.write(f"HTTP {_resp.status} · 页面长度 {len(_body)}")
+                st.write("含岗位数据:", "是" if _has_state else "否")
+                st.write("被WAF拦截:", "是" if _blocked else "否")
+                if _has_state:
+                    st.success("云端可以正常读取智联岗位数据 ✅")
+                elif _blocked:
+                    st.error("云端被智联安全验证拦截 ❌（海外服务器访问智联受限）")
+                else:
+                    st.warning("页面打开但未找到岗位数据（可能改版或跳转）")
+            except Exception as _e:
+                st.error(f"请求失败: {_e}")
         try:
             config.refresh()
             st.write("config 重新读取后：")
