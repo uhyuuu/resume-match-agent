@@ -653,6 +653,16 @@ with st.sidebar:
                 if _v:
                     _src = "环境变量"
             st.write(f"{_k}: {'✅ 已设置(' + _src + ')' if _v else '❌ 未设置'}")
+        st.write("---")
+        try:
+            config.refresh()
+            st.write("config 重新读取后：")
+            st.write(f"DEEPSEEK_API_KEY: {'✅ 已设置' if config.DEEPSEEK_API_KEY else '❌ 空'}")
+            st.write(f"DEEPSEEK_BASE_URL: {'✅ 已设置' if config.DEEPSEEK_BASE_URL else '❌ 空'}")
+            st.write(f"SERPAPI_API_KEY: {'✅ 已设置' if config.SERPAPI_API_KEY else '❌ 空'}")
+            st.write(f"MODEL_NAME: {config.MODEL_NAME}")
+        except Exception as _e2:
+            st.write("config.refresh 失败:", repr(_e2))
 
 
 # ---------- 顶部 Hero：左侧标题 + 右侧状态 ----------

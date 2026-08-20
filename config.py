@@ -41,8 +41,22 @@ SERPAPI_API_KEY = _get_secret("SERPAPI_API_KEY")
 MODEL_NAME = _get_secret("MODEL_NAME") or "deepseek-v4-flash"
 
 
+def refresh() -> None:
+    """重新读取所有密钥。
+
+    云端在应用运行期间才保存 Secrets 时，模块级变量可能还是旧值；
+    每次检查前 refresh 一次，确保拿到最新密钥。
+    """
+    global DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, SERPAPI_API_KEY, MODEL_NAME
+    DEEPSEEK_API_KEY = _get_secret("DEEPSEEK_API_KEY")
+    DEEPSEEK_BASE_URL = _get_secret("DEEPSEEK_BASE_URL")
+    SERPAPI_API_KEY = _get_secret("SERPAPI_API_KEY")
+    MODEL_NAME = _get_secret("MODEL_NAME") or "deepseek-v4-flash"
+
+
 def check_config() -> bool:
     """检查必需的密钥是否齐全，缺失时抛出清晰的中文报错提示。"""
+    refresh()
     missing = []
     if not DEEPSEEK_API_KEY:
         missing.append("DEEPSEEK_API_KEY（DeepSeek API Key）")
