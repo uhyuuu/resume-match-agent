@@ -5,6 +5,7 @@
 import datetime
 import json
 import re
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -593,31 +594,46 @@ def _fetch_zhaopin_state(url: str) -> dict | None:
 
     注意：必须用 urllib 抓取。智联 WAF 对 requests 的 TLS 指纹会返回
     "Security Verification" 验证页，只有 urllib 才能拿到带数据的旧版 SEO 页。
+    带一次自动重试：并发抓取时偶发被限流/网络抖动，重试可显著提高成功率。
     """
-    try:
-        req = urllib.request.Request(url, headers=_ZHAOPIN_FETCH_HEADERS)
-        with urllib.request.urlopen(req, timeout=ZHAOPIN_FETCH_TIMEOUT) as resp:
-            body = resp.read().decode("utf-8", "ignore")
-    except Exception:
-        _zhaopin_debug["fetch_error"] += 1
-        return None
-    if "Security Verification" in body[:800] or len(body) < 5000:
-        _zhaopin_debug["blocked"] += 1
-        return None
-    marker = "__INITIAL_STATE__="
-    start = body.find(marker)
-    if start < 0:
-        return None
-    end = body.find("</script>", start)
-    if end < 0:
-        return None
-    raw = body[start + len(marker):end].strip()
-    if raw.endswith(";"):
-        raw = raw[:-1]
-    try:
-        return json.loads(raw)
-    except ValueError:
-        return None
+    for attempt in range(2):
+        try:
+            req = urllib.request.Request(url, headers=_ZHAOPIN_FETCH_HEADERS)
+            with urllib.request.urlopen(req, timeout=ZHAOPIN_FETCH_TIMEOUT) as resp:
+                body = resp.read().decode("utf-8", "ignore")
+        except Exception:
+            _zhaopin_debug["fetch_error"] += 1
+            if attempt == 0:
+                time.sleep(0.6)
+                continue
+            return None
+        if "Security Verification" in body[:800] or len(body) < 5000:
+            _zhaopin_debug["blocked"] += 1
+            if attempt == 0:
+                time.sleep(0.6)
+                continue
+            return None
+        marker = "__INITIAL_STATE__="
+        start = body.find(marker)
+        if start < 0:
+            if attempt == 0:
+                time.sleep(0.6)
+                continue
+            return None
+        end = body.find("</script>", start)
+        if end < 0:
+            return None
+        raw = body[start + len(marker):end].strip()
+        if raw.endswith(";"):
+            raw = raw[:-1]
+        try:
+            return json.loads(raw)
+        except ValueError:
+            if attempt == 0:
+                time.sleep(0.6)
+                continue
+            return None
+    return None
 
 
 def _html_to_text(html_text: str) -> str:
@@ -730,7 +746,7 @@ def search_jobs_zhaopin(query: str) -> list:
         return []
 
     jobs: list[dict] = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         states = list(pool.map(_fetch_zhaopin_state, urls))
     for url, state in zip(urls, states):
         if not state:
