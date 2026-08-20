@@ -24,3 +24,8 @@ Thumbs.db
 # 本地运行日志与临时验证文件
 streamlit_log.txt
 ui_check/
+ui_check_ocr.png
+
+# 本地接口自检工具（不入库）
+check_api.py
+检查API.bat

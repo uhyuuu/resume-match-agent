@@ -18,7 +18,7 @@
 ## 技术栈
 
 - **Streamlit**：网页界面
-- **openai**：调用 DeepSeek（OpenAI 兼容接口，模型 `deepseek-v4-flash`）
+- **openai**：调用 DeepSeek（OpenAI 兼容接口，模型默认 `deepseek-v4-flash`，可在 `.env` / 云端 Secrets 里用 `MODEL_NAME` 覆盖）
 - **SerpAPI + requests**：Google Jobs 实时岗位搜索
 - **pypdf / python-docx**：PDF / DOCX 简历解析
 - **python-dotenv**：读取 `.env` 环境变量
@@ -45,6 +45,7 @@ streamlit run app.py
 DEEPSEEK_API_KEY=你的 DeepSeek API Key
 DEEPSEEK_BASE_URL=https://xcode.best/v1
 SERPAPI_API_KEY=你的 SerpAPI API Key
+MODEL_NAME=deepseek-v4-flash   # 可选：模型名，默认 deepseek-v4-flash
 ```
 
 > 提示：`.env` 包含真实密钥，已被 `.gitignore` 忽略，请勿提交到版本库；代码统一通过 `config.py` 读取环境变量，不硬编码任何密钥。
@@ -79,6 +80,33 @@ git push -u origin main
 DEEPSEEK_API_KEY = "你的 DeepSeek API Key"
 DEEPSEEK_BASE_URL = "https://xcode.best/v1"
 SERPAPI_API_KEY = "你的 SerpAPI Key"
+MODEL_NAME = "deepseek-v4-flash"   # 可选：模型名，默认 deepseek-v4-flash
 ```
 
 5. 保存 Secrets 后点 **Rerun**（或重新打开应用），即可获得公网链接，任何设备都能访问。
+
+
+## 常见问题排查
+
+### 提示「没有部署 api / No available channel / 模型未部署」
+这是 **DeepSeek 中转站（xcode.best）** 返回的错误，说明该模型当前没有可用渠道，通常不是 Secrets 填错。请按顺序检查：
+
+1. 打开应用后看左侧「配置状态」：如果是绿色「密钥齐全」，说明 Secrets 已成功读取；
+   如果是红色「缺少必需的环境变量…」，说明 Secrets 键名填错或没保存，请检查键名是否和文档逐字一致。
+2. 登录 xcode.best 控制台（你申请 API Key 的地方）：
+   - 检查 **余额** 是否充足（余额为 0 时会报渠道不可用）；
+   - 查看 **模型列表**，确认 `deepseek-v4-flash` 是否存在于你的套餐/令牌里。
+3. 若中转站里可用的模型名不同（例如 `deepseek-chat`、`deepseek-reasoner` 等），**无需改代码**，
+   直接在云端 **Settings → Secrets** 里加一行：
+
+```toml
+MODEL_NAME = "中转站里可用的模型名"
+```
+
+保存后点 **Rerun** 即可。本地开发则改 `.env` 里的 `MODEL_NAME`。
+
+### 报错「调用 DeepSeek 失败：…」
+把红色报错里 `失败：` 后面的完整文字发给开发者或截图，里面包含中转站返回的真实原因（余额不足 / 密钥无效 / 渠道不可用等）。
+
+### 报错「缺少必需的环境变量：…」
+说明 Secrets 没有读进来：检查键名拼写（`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`SERPAPI_API_KEY` 三个键名要和文档完全一致），保存 Secrets 后点页面上的 **Rerun** 再刷新。

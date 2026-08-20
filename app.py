@@ -618,9 +618,10 @@ with st.sidebar:
     st.subheader("配置状态")
     try:
         config.check_config()
-        st.success("已读取 .env 配置，密钥齐全")
+        st.success("密钥齐全（本地 .env / 云端 Secrets）")
         with st.expander("当前配置详情"):
             st.code(
+                f"模型: {config.MODEL_NAME}\n"
                 f"DEEPSEEK_BASE_URL: {config.DEEPSEEK_BASE_URL}\n"
                 f"DEEPSEEK_API_KEY: ****{config.DEEPSEEK_API_KEY[-6:]}\n"
                 f"SERPAPI_API_KEY: ****{config.SERPAPI_API_KEY[-6:]}",

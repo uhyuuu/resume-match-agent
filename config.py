@@ -36,6 +36,10 @@ DEEPSEEK_API_KEY = _get_secret("DEEPSEEK_API_KEY")
 DEEPSEEK_BASE_URL = _get_secret("DEEPSEEK_BASE_URL")
 SERPAPI_API_KEY = _get_secret("SERPAPI_API_KEY")
 
+# 可选：DeepSeek 模型名。若中转站提示「模型未部署 / No available channel」，
+# 可到中转站控制台查可用的模型名，在这里（或云端 Secrets 的 MODEL_NAME）替换。
+MODEL_NAME = _get_secret("MODEL_NAME") or "deepseek-v4-flash"
+
 
 def check_config() -> bool:
     """检查必需的密钥是否齐全，缺失时抛出清晰的中文报错提示。"""

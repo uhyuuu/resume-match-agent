@@ -9,7 +9,7 @@ import config
 from prompts import ANALYSIS_PROMPT, REPORT_PROMPT
 
 # 固定使用的 DeepSeek 模型与生成参数
-MODEL_NAME = "deepseek-v4-flash"
+MODEL_NAME = config.MODEL_NAME
 TEMPERATURE = 0.3
 MAX_TOKENS = 8192
 
