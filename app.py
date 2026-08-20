@@ -423,15 +423,17 @@ def run_pipeline(uploaded_file, resume_text_input: str, target_role: str, target
         progress[0] = True
         render_progress(0)
 
-        # 第二步：调用 DeepSeek 分析简历
-        analysis = analyze_resume(resume_text, target_role.strip())
+        # 第二步：调用 DeepSeek 分析简历（带超时与进度提示）
+        with st.spinner("正在智能分析简历（首次调用约 20-60 秒，请稍候）……"):
+            analysis = analyze_resume(resume_text, target_role.strip())
         progress[1] = True
         render_progress(1)
 
         # 第三步：实时搜岗（智联实时在招 + 本地匹配度打分）
-        jobs, used_query = job_search.search_jobs_with_fallback(
-            analysis, target_role, target_city
-        )
+        with st.spinner("正在实时搜岗（只保留在招岗位）……"):
+            jobs, used_query = job_search.search_jobs_with_fallback(
+                analysis, target_role, target_city
+            )
         ranked_jobs = rank_jobs_by_match(analysis, jobs)
         progress[2] = True
         render_progress(2)

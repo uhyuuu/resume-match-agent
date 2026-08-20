@@ -15,9 +15,18 @@ MAX_TOKENS = 8192
 
 
 def _get_client() -> OpenAI:
-    """校验配置并创建 DeepSeek 的 OpenAI 兼容客户端。"""
+    """校验配置并创建 DeepSeek 的 OpenAI 兼容客户端。
+
+    必须设置 timeout：SDK 默认超时长达 10 分钟，中转接口一慢页面就会
+    长时间卡住；这里收紧到 90 秒，超时由 _chat 统一重试并给出提示。
+    """
     config.check_config()
-    return OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
+    return OpenAI(
+        api_key=config.DEEPSEEK_API_KEY,
+        base_url=config.DEEPSEEK_BASE_URL,
+        timeout=90.0,
+        max_retries=0,  # 重试交给 _chat 自己的循环，避免重复叠加
+    )
 
 
 def _chat(messages: list) -> str:
