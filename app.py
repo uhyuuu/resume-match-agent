@@ -630,6 +630,30 @@ with st.sidebar:
     except RuntimeError as exc:
         st.error(str(exc))
 
+    st.divider()
+    with st.expander("调试信息（排障用）"):
+        st.write("密钥来源检查：")
+        import os as _os
+        try:
+            _secret_keys = list(st.secrets.keys())
+            st.write("st.secrets 中的键:", _secret_keys if _secret_keys else "（空）")
+        except Exception as _e:
+            st.write("st.secrets 读取失败:", repr(_e))
+        for _k in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "SERPAPI_API_KEY", "MODEL_NAME"):
+            _src = ""
+            _v = ""
+            try:
+                _v = st.secrets.get(_k, "")
+                if _v:
+                    _src = "st.secrets"
+            except Exception:
+                pass
+            if not _v:
+                _v = _os.getenv(_k, "")
+                if _v:
+                    _src = "环境变量"
+            st.write(f"{_k}: {'✅ 已设置(' + _src + ')' if _v else '❌ 未设置'}")
+
 
 # ---------- 顶部 Hero：左侧标题 + 右侧状态 ----------
 st.markdown(
