@@ -428,7 +428,7 @@ def run_pipeline(uploaded_file, resume_text_input: str, target_role: str, target
         progress[1] = True
         render_progress(1)
 
-        # 第三步：实时搜岗（Google Jobs 实时在招，BOSS 直聘优先）+ 本地匹配度打分
+        # 第三步：实时搜岗（智联实时在招 + 本地匹配度打分）
         jobs, used_query = job_search.search_jobs_with_fallback(
             analysis, target_role, target_city
         )
@@ -436,7 +436,10 @@ def run_pipeline(uploaded_file, resume_text_input: str, target_role: str, target
         progress[2] = True
         render_progress(2)
 
-        # 第四步：流式生成 6 大模块求职报告（实时显示）
+        # 先渲染候选人画像 + 岗位卡片
+        render_results(analysis, ranked_jobs, used_query)
+
+        # 第四步：流式生成 6 大模块求职报告（只渲染一次，写在报告容器内）
         report_placeholder = st.empty()
         full_report = ""
         with st.spinner("正在生成求职报告（实时显示中）……"):
@@ -444,14 +447,16 @@ def run_pipeline(uploaded_file, resume_text_input: str, target_role: str, target
                 analysis, ranked_jobs, target_role.strip(), jd_text.strip()
             ):
                 full_report += chunk
-                report_placeholder.markdown(full_report + "▌")
-        report_placeholder.markdown(full_report)
-        report = full_report
+                report_placeholder.markdown(
+                    f'<div class="report-card">## 6 大模块求职报告\n\n{full_report}▌\n\n</div>',
+                    unsafe_allow_html=True,
+                )
+        report_placeholder.markdown(
+            f'<div class="report-card">## 6 大模块求职报告\n\n{full_report}\n\n</div>',
+            unsafe_allow_html=True,
+        )
         progress[3] = True
         render_progress(3)
-
-        # 渲染结果
-        render_results(analysis, ranked_jobs, used_query, report)
 
     except ValueError as exc:
         st.error(f"输入有误：{exc}")
@@ -462,7 +467,7 @@ def run_pipeline(uploaded_file, resume_text_input: str, target_role: str, target
 
 
 def render_progress(current: int) -> None:
-    """渲染顶部 4 步进度条。"""
+    """渲染顶部 4 步进度条（同一个占位符原地更新，避免重复渲染）。"""
     labels = ["简历解析", "智能分析", "实时搜岗", "生成报告"]
     html = '<div class="step-track">'
     for i, label in enumerate(labels):
@@ -478,11 +483,15 @@ def render_progress(current: int) -> None:
             line_cls = "done" if i < current else ""
             html += f'<div class="step-line {line_cls}"></div>'
     html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    ph = st.session_state.get("progress_ph")
+    if ph is None:
+        ph = st.empty()
+        st.session_state.progress_ph = ph
+    ph.markdown(html, unsafe_allow_html=True)
 
 
-def render_results(analysis: dict, jobs: list, used_query: str, report: str) -> None:
-    """渲染完整结果：候选人画像 + 岗位卡片 + 6 大模块报告。"""
+def render_results(analysis: dict, jobs: list, used_query: str) -> None:
+    """渲染完整结果：候选人画像 + 岗位卡片（报告已在生成阶段渲染过一次）。"""
     # 候选人画像卡片
     candidate = analysis.get("candidate") or {}
     name = candidate.get("name") or "候选人"
@@ -526,11 +535,7 @@ def render_results(analysis: dict, jobs: list, used_query: str, report: str) -> 
     # 岗位搜索结果
     render_jobs_section(jobs, used_query)
 
-    # 6 大模块报告（Markdown，包在白底细边框容器内）
-    st.markdown(
-        f'<div class="report-card">## 6 大模块求职报告\n\n{report}\n\n</div>',
-        unsafe_allow_html=True,
-    )
+    # 报告已在 run_pipeline 生成阶段渲染，这里不再重复
 
 
 def render_jobs_section(jobs: list, used_query: str) -> None:
