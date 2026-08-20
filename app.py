@@ -428,7 +428,7 @@ def run_pipeline(uploaded_file, resume_text_input: str, target_role: str, target
         progress[1] = True
         render_progress(1)
 
-        # 第三步：实时搜岗（BOSS 直聘）+ 本地匹配度打分
+        # 第三步：实时搜岗（Google Jobs 实时在招，BOSS 直聘优先）+ 本地匹配度打分
         jobs, used_query = job_search.search_jobs_with_fallback(
             analysis, target_role, target_city
         )
@@ -540,7 +540,7 @@ def render_jobs_section(jobs: list, used_query: str) -> None:
         st.markdown(
             f'<div class="section-head" style="margin-top:8px">'
             f'<span class="section-num">Top {len(top_jobs)}</span>'
-            f'<span class="section-title">最匹配岗位（按匹配度排序）· 来源 BOSS 直聘</span></div>',
+            f'<span class="section-title">最匹配岗位（按匹配度排序）· 实时在招（BOSS直聘等平台）</span></div>',
             unsafe_allow_html=True,
         )
         for idx, job in enumerate(top_jobs, start=1):
@@ -566,6 +566,9 @@ def render_job_card(rank: int, job: dict) -> None:
     if salary:
         meta_parts.append(salary)
     meta_parts.append(company)
+    platform = job.get("platform") or ""
+    if platform and platform != "Google Jobs":
+        meta_parts.append(platform)
     meta_html = ""
     for i, part in enumerate(meta_parts):
         if i:
@@ -678,7 +681,7 @@ st.markdown(
         </div>
         <div class="hero-status">
             <div class="status-row"><span class="status-dot"></span>系统就绪</div>
-            <div class="status-meta">DeepSeek · BOSS 直聘</div>
+            <div class="status-meta">DeepSeek · 实时在招岗位</div>
         </div>
     </div>""",
     unsafe_allow_html=True,

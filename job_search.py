@@ -386,21 +386,187 @@ def _extract_location(snippet: str, title: str) -> str:
     return ""
 
 
+# ================= 实时在招岗位搜索（SerpAPI Google Jobs 引擎） =================
+# Google Jobs 聚合的是各招聘平台【仍在招聘】的岗位，过期岗位会被移除；
+# 配合 date_posted 只取最近发布的岗位，能大幅减少"已停止招聘"的结果。
+# 结果优先保留 BOSS 直聘，不足时用其他平台的实时岗位补齐（全部为在招）。
+
+GOOGLE_JOBS_LIMIT = 20
+
+
+def _fetch_serpapi(params: dict) -> dict:
+    """统一的 SerpAPI 请求封装：返回 dict，出错时抛 RuntimeError。"""
+    try:
+        response = SESSION.get(SERPAPI_ENDPOINT, params=params, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"岗位搜索请求失败：{exc}，请检查网络连接或 SerpAPI 配置。") from exc
+    except ValueError as exc:
+        raise RuntimeError("岗位搜索接口返回的数据无法解析，请稍后重试。") from exc
+    if not isinstance(data, dict):
+        return {}
+    if data.get("error"):
+        raise RuntimeError(f"岗位搜索接口返回错误：{data['error']}")
+    return data
+
+
+def _fetch_google_jobs(query: str, city: str = "", date_posted: str = "week") -> list:
+    """调用 SerpAPI google_jobs 引擎，返回原始岗位条目列表。"""
+    params = {
+        "engine": "google_jobs",
+        "q": query,
+        "api_key": config.SERPAPI_API_KEY,
+        "hl": "zh-cn",
+        "gl": "cn",
+        "google_domain": "google.com",
+        "date_posted": date_posted,
+        "limit": GOOGLE_JOBS_LIMIT,
+    }
+    if city and city.strip():
+        params["location"] = city.strip()
+    data = _fetch_serpapi(params)
+    return data.get("jobs") or []
+
+
+def _simplify_google_job(item: dict) -> dict | None:
+    """把 Google Jobs 结果转换为统一岗位字段；已关闭/无效岗位返回 None。"""
+    title = (item.get("title") or "").strip()
+    if not title:
+        return None
+    company = (item.get("company_name") or "").strip()
+    location = (item.get("location") or "").strip()
+    description = (item.get("description") or "").strip()
+    ext = item.get("detected_extensions") or {}
+    posted_at = str(ext.get("posted_at") or "").strip()
+    salary = str(ext.get("salary") or "").strip() or _extract_salary(description)
+    via = (item.get("via_page") or "").strip()
+
+    # 详情链接：优先 BOSS 直聘链接（apply_link 可能是 Google 跳转链接）
+    apply_link = (item.get("apply_link") or "").strip()
+    if "zhipin" not in apply_link.lower():
+        for rel in (item.get("related_links") or []):
+            url = (rel.get("link") or "").strip()
+            if "zhipin" in url.lower():
+                apply_link = url
+                break
+
+    # 防御性过滤：标题/描述含"已停止/已关闭"等字样
+    if _is_closed_job(f"{title} {description}", title):
+        return None
+
+    recency_days = _parse_recency_days(posted_at)
+    if recency_days is not None and recency_days > STALE_DAYS:
+        return None
+
+    return {
+        "title": title,
+        "company": company or "未知",
+        "location": location,
+        "salary": salary,
+        "link": apply_link,
+        "snippet": _make_snippet(description),
+        "description": description[:1200],
+        "date": posted_at,
+        "platform": via or "Google Jobs",
+    }
+
+
+def _make_snippet(description: str, max_len: int = 220) -> str:
+    """把岗位描述压缩成单行摘要。"""
+    text = re.sub(r"\s+", " ", description or "").strip()
+    if len(text) > max_len:
+        return text[:max_len] + "……"
+    return text
+
+
+def _is_boss_result(job: dict) -> bool:
+    """判断岗位是否来自 BOSS 直聘。"""
+    link = (job.get("link") or "").lower()
+    platform = (job.get("platform") or "").lower()
+    return "zhipin" in link or "boss" in platform or "直聘" in platform
+
+
+def _dedupe_jobs(jobs: list) -> list:
+    """按 (岗位名, 公司名) 去重。"""
+    seen = set()
+    result = []
+    for job in jobs:
+        key = (
+            (job.get("title") or "").strip().lower(),
+            (job.get("company") or "").strip().lower(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(job)
+    return result
+
+
+def search_jobs_live(query: str, city: str = "") -> list:
+    """用 Google Jobs 引擎搜索【实时在招】岗位：BOSS 直聘优先，其余平台补齐。
+
+    Args:
+        query: 岗位搜索关键词。
+        city: 目标城市（可空）。
+
+    Returns:
+        岗位信息列表，每条含 title/company/location/salary/link/snippet/
+        description/date/platform 字段；优先 BOSS 直聘，按发布时间较新的靠前。
+    """
+    query = (query or "").strip()
+    if not query:
+        raise ValueError("岗位搜索词不能为空，请先填写目标岗位。")
+
+    jobs: list[dict] = []
+    try:
+        raw_items = _fetch_google_jobs(query, city, date_posted="week")
+    except RuntimeError:
+        raw_items = []
+    for item in raw_items:
+        job = _simplify_google_job(item)
+        if job is not None:
+            jobs.append(job)
+
+    # 最近 7 天没有结果时，放宽到最近 1 个月
+    if not jobs:
+        try:
+            raw_items = _fetch_google_jobs(query, city, date_posted="month")
+        except RuntimeError:
+            raw_items = []
+        for item in raw_items:
+            job = _simplify_google_job(item)
+            if job is not None:
+                jobs.append(job)
+
+    jobs = _dedupe_jobs(jobs)
+    boss_jobs = [j for j in jobs if _is_boss_result(j)]
+    other_jobs = [j for j in jobs if not _is_boss_result(j)]
+    return (boss_jobs + other_jobs)[:MAX_JOBS]
+
+
 def search_jobs_with_fallback(analysis: dict, target_role: str, target_city: str) -> tuple[list, str]:
-    """中文搜索无结果时，自动用英文关键词重试。返回 (岗位列表, 实际使用的搜索词)。"""
+    """实时在招搜索为主（Google Jobs），旧方案兜底。返回 (岗位列表, 实际使用的搜索词)。"""
     base_query = analysis.get("search_query") or _build_query(target_role, target_city)
     if target_city.strip() and target_city.strip() not in base_query:
         base_query = f"{base_query} {target_city.strip()}".strip()
 
-    jobs = search_jobs(base_query)
+    # 1) Google Jobs 实时在招（BOSS 直聘优先）
+    jobs = search_jobs_live(base_query, target_city)
     if jobs:
         return jobs, base_query
 
+    # 2) 中文没有 → 用英文关键词再试
     en_query = analysis.get("search_query_en")
     if en_query and en_query.strip():
-        jobs = search_jobs(en_query)
+        jobs = search_jobs_live(en_query, target_city)
         if jobs:
             return jobs, en_query
+
+    # 3) 都为空 → 退回搜索引擎收录的 BOSS 详情页方案
+    jobs = search_jobs(base_query)
+    if jobs:
+        return jobs, base_query
 
     return [], base_query
 

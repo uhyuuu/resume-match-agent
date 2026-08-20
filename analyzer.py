@@ -121,7 +121,11 @@ def rank_jobs_by_match(analysis_json: dict, jobs_json: list) -> list:
 
     scored = []
     for job in jobs_json:
-        text = ((job.get("title") or "") + " " + (job.get("snippet") or "")).lower()
+        text = (
+            (job.get("title") or "") + " "
+            + (job.get("description") or "") + " "
+            + (job.get("snippet") or "")
+        ).lower()
         score = 0
         matched_skills: list[str] = []
 
