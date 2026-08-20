@@ -1,112 +1,67 @@
 # 智能简历匹配 Agent
 
-一句话简介：上传简历后，自动完成「简历解析 → 智能分析 → 实时搜岗 → 报告生成」的一站式求职工具，最终输出 6 大模块 Markdown 求职报告。
+> 上传一份简历，自动完成「简历解析 → 智能分析 → 实时搜岗 → 报告生成」，输出一份 6 大模块的定制求职报告。
 
-## 功能列表
+**在线体验**：https://resume-match-agent-ajdssphvnasocg3xmxyy3k.streamlit.app/
+**代码仓库**：https://github.com/uhyuuu/resume-match-agent
 
-- **上传简历**：支持 PDF / DOCX / TXT，也可直接粘贴简历文字
-- **智能解析**：提取候选人画像、技能、经历、优劣势，并自动生成岗位搜索关键词
-- **实时搜岗**：通过 SerpAPI + Google 实时搜索 BOSS 直聘岗位（最多 10 条），自动过滤「已停止/已关闭/已下架」等失效岗位和 SEO 模板页，只保留仍在招的真实岗位
-- **6 大模块报告**（由 DeepSeek 生成，支持 Markdown 表格渲染）：
-  1. 简历经历速览
-  2. Top 5 最匹配岗位（含 0-100 匹配度打分与理由）
-  3. 薪资档位分析（低 / 中 / 高 + 影响因素）
-  4. 能力差距矩阵（6-8 项能力，标出差距最大 3 项）
-  5. 分级学习路线图（P0 本周 / P1 本月 / P2 1-3 个月 / P3 长期）
-  6. 本周可投递行动计划（5 个岗位 + 投递渠道 + 建议时间 + 3 条简历优化建议）
+---
+
+## 这是什么
+
+求职者上传简历（PDF / DOCX / TXT，或直接粘贴文字），填写目标岗位和城市，应用会自动完成：
+
+1. **解析简历**：提取候选人画像、技能、经历、优劣势
+2. **智能分析**：结合目标岗位自动生成搜索关键词与能力评估
+3. **实时搜岗**：只保留「当前正在招聘」的真实岗位（智联招聘为主）
+4. **生成报告**：输出 6 大模块求职报告（匹配度打分、薪资分析、能力差距、学习路线、投递计划）
+
+## 核心亮点（给面试官的重点）
+
+### 1. 解决「搜到的岗位一半已停止招聘」的真实痛点
+- 第一版方案：搜索引擎收录的 BOSS 直聘缓存页 → **10 个岗位里 8 个已停止招聘**
+- 定位问题：搜索引擎索引 ≠ 岗位实时状态，且 Google Jobs 对中国大陆岗位覆盖几乎为零
+- 重构方案：通过百度索引找到智联招聘详情页 → 逐条打开并解析页面内嵌 JSON → 用「招聘中状态 + 发布时间新鲜度 + 关闭标记」三重校验，只保留真正在招的岗位
+- 结果：返回岗位全部为近期发布的在招岗位，且带完整薪资 / 城市 / 职责描述，匹配打分更准确
+
+### 2. 自动化匹配度打分（0-100 + 理由）
+- 本地关键词 / 技能匹配打分，不依赖大模型，速度快、成本低
+- 报告再由大模型生成个性化建议，两层结合
+
+### 3. 云端可访问
+- 部署到 Streamlit 云，有链接即可演示，不依赖本机在线
+
+## 工作流程
+
+```
+简历上传 → 解析(PDF/DOCX/TXT) → DeepSeek 智能分析 → 实时搜岗(智联/BOSS) → 匹配打分 → 6 大模块报告
+```
 
 ## 技术栈
 
-- **Streamlit**：网页界面
-- **openai**：调用 DeepSeek（OpenAI 兼容接口，模型默认 `deepseek-v4-flash`，可在 `.env` / 云端 Secrets 里用 `MODEL_NAME` 覆盖）
-- **SerpAPI + requests**：Google Jobs 实时岗位搜索
-- **pypdf / python-docx**：PDF / DOCX 简历解析
-- **python-dotenv**：读取 `.env` 环境变量
+- **界面 / 框架**：Streamlit
+- **大模型**：DeepSeek（OpenAI 兼容接口）
+- **实时搜岗**：SerpAPI（百度索引 → 智联招聘详情页核验，Google Jobs 补充）
+- **文档解析**：pypdf / python-docx
+- **部署**：Streamlit Community Cloud
 
-## 环境要求
-
-- Python 3.13
-- 网络可访问 DeepSeek 与 SerpAPI 接口
-
-## 安装与运行
+## 本地运行
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-启动后浏览器会自动打开应用页面。
+环境变量见 `.env.example`：`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`SERPAPI_API_KEY`。
 
-## .env 配置说明
+## 目录结构
 
-在项目根目录创建 `.env` 文件（参考 `.env.example` 模板），填写以下变量：
+- `app.py` — 主程序（界面 + 流程编排）
+- `job_search.py` — 实时在招岗位搜索与核验
+- `analyzer.py` — 简历分析 + 匹配度打分
+- `prompts.py` — 报告生成的提示词模板
+- `config.py` — 密钥读取（本地 .env / 云端 Secrets）
 
-```ini
-DEEPSEEK_API_KEY=你的 DeepSeek API Key
-DEEPSEEK_BASE_URL=https://xcode.best/v1
-SERPAPI_API_KEY=你的 SerpAPI API Key
-MODEL_NAME=deepseek-v4-flash   # 可选：模型名，默认 deepseek-v4-flash
-```
+## 安全说明
 
-> 提示：`.env` 包含真实密钥，已被 `.gitignore` 忽略，请勿提交到版本库；代码统一通过 `config.py` 读取环境变量，不硬编码任何密钥。
-
-
-
-## 部署到 Streamlit 云（无需电脑在线，用链接随处访问）
-
-本应用已适配云端：密钥优先读 Streamlit 云 Secrets，本地自动回退到 `.env`，代码无需改动。
-
-### 第 1 步：把代码推到 GitHub
-
-```bash
-git init
-git add .
-git commit -m "初始化智能简历匹配 Agent"
-git branch -M main
-git remote add origin https://github.com/<你的GitHub用户名>/resume-match-agent.git
-git push -u origin main
-```
-
-> 注意：`.env`（真实密钥）和 `开发需求*.txt`（含密钥的历史文档）已被 `.gitignore` 排除，不会上传到 GitHub。
-
-### 第 2 步：在 Streamlit 云创建应用
-
-1. 打开 <https://share.streamlit.io>，用 GitHub 账号登录；
-2. 点击 **New app** → 选择刚推上去的仓库 `resume-match-agent`；
-3. 分支选 `main`，主文件填 `app.py`，点击 **Deploy**；
-4. 部署完成后进入 **Settings → Secrets**，填入以下内容（值换成你自己的密钥）：
-
-```toml
-DEEPSEEK_API_KEY = "你的 DeepSeek API Key"
-DEEPSEEK_BASE_URL = "https://xcode.best/v1"
-SERPAPI_API_KEY = "你的 SerpAPI Key"
-MODEL_NAME = "deepseek-v4-flash"   # 可选：模型名，默认 deepseek-v4-flash
-```
-
-5. 保存 Secrets 后点 **Rerun**（或重新打开应用），即可获得公网链接，任何设备都能访问。
-
-
-## 常见问题排查
-
-### 提示「没有部署 api / No available channel / 模型未部署」
-这是 **DeepSeek 中转站（xcode.best）** 返回的错误，说明该模型当前没有可用渠道，通常不是 Secrets 填错。请按顺序检查：
-
-1. 打开应用后看左侧「配置状态」：如果是绿色「密钥齐全」，说明 Secrets 已成功读取；
-   如果是红色「缺少必需的环境变量…」，说明 Secrets 键名填错或没保存，请检查键名是否和文档逐字一致。
-2. 登录 xcode.best 控制台（你申请 API Key 的地方）：
-   - 检查 **余额** 是否充足（余额为 0 时会报渠道不可用）；
-   - 查看 **模型列表**，确认 `deepseek-v4-flash` 是否存在于你的套餐/令牌里。
-3. 若中转站里可用的模型名不同（例如 `deepseek-chat`、`deepseek-reasoner` 等），**无需改代码**，
-   直接在云端 **Settings → Secrets** 里加一行：
-
-```toml
-MODEL_NAME = "中转站里可用的模型名"
-```
-
-保存后点 **Rerun** 即可。本地开发则改 `.env` 里的 `MODEL_NAME`。
-
-### 报错「调用 DeepSeek 失败：…」
-把红色报错里 `失败：` 后面的完整文字发给开发者或截图，里面包含中转站返回的真实原因（余额不足 / 密钥无效 / 渠道不可用等）。
-
-### 报错「缺少必需的环境变量：…」
-说明 Secrets 没有读进来：检查键名拼写（`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`SERPAPI_API_KEY` 三个键名要和文档完全一致），保存 Secrets 后点页面上的 **Rerun** 再刷新。
+密钥通过环境变量 / Streamlit 云 Secrets 管理，`.env` 已被 `.gitignore` 忽略，不会提交到仓库。
